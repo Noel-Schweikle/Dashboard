@@ -217,7 +217,7 @@ class GoogleCalendarClient:
         if "T" in value:
             dt = datetime.fromisoformat(value)
             if dt.tzinfo is None:
-                dt = dt.replace(tzinfo=timezone.utc)
+                dt = dt.replace(tzinfo=ZoneInfo("Europe/Berlin"))
             return dt
         return datetime.fromisoformat(value + "T00:00:00+00:00")
 
