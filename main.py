@@ -177,8 +177,8 @@ class GoogleCalendarClient:
         )
         service = build("calendar", "v3", credentials=credentials)
 
-        now = datetime.now(timezone.utc)
-        start_of_day = datetime(now.year, now.month, now.day, tzinfo=timezone.utc)
+        now = datetime.now(timezone("Europe/Berlin"))
+        start_of_day = datetime(now.year, now.month, now.day, tzinfo=timezone("Europe/Berlin"))
         end_of_day = start_of_day + timedelta(days=1)
 
         events_result = (
@@ -510,7 +510,7 @@ class DashboardWindow(QtWidgets.QMainWindow):
         self.refresh_timer.start(10 * 60 * 1000)  # 10 minutes
 
     def _update_clock(self) -> None:
-        now_utc = datetime.now(timezone.utc)
+        now_utc = datetime.now(timezone("Europe/Berlin"))
         self.clock_label.setText(now_utc.strftime("%H:%M:%S"))
 
     def _check_alarm(self) -> None:
