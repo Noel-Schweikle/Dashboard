@@ -22,6 +22,7 @@ from dataclasses import dataclass
 from datetime import datetime, time, timedelta, timezone
 from pathlib import Path
 from typing import List, Optional
+from zoneinfo import ZoneInfo
 
 import requests
 from PyQt5 import QtCore, QtGui, QtWidgets
@@ -177,7 +178,7 @@ class GoogleCalendarClient:
         )
         service = build("calendar", "v3", credentials=credentials)
 
-        now = datetime.now(timezone("Europe/Berlin"))
+        now = datetime.now(tz=ZoneInfo("Europe/Berlin")
         start_of_day = datetime(now.year, now.month, now.day, tzinfo=timezone("Europe/Berlin"))
         end_of_day = start_of_day + timedelta(days=1)
 
@@ -510,7 +511,7 @@ class DashboardWindow(QtWidgets.QMainWindow):
         self.refresh_timer.start(10 * 60 * 1000)  # 10 minutes
 
     def _update_clock(self) -> None:
-        now_utc = datetime.now(timezone("Europe/Berlin"))
+        now_utc = datetime.now(tz=ZoneInfo("Europe/Berlin")
         self.clock_label.setText(now_utc.strftime("%H:%M:%S"))
 
     def _check_alarm(self) -> None:
