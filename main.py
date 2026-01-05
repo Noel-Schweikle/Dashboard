@@ -15,10 +15,12 @@ The application uses dark styling for a modern appearance suitable for a small t
 from __future__ import annotations
 
 import importlib.util
+import json
 import os
 import sys
 from dataclasses import dataclass
 from datetime import datetime, time, timedelta, timezone
+from pathlib import Path
 from typing import List, Optional
 
 import requests
@@ -220,6 +222,124 @@ class GoogleCalendarClient:
         return datetime.fromisoformat(value + "T00:00:00+00:00")
 
 
+class TouchTimeDialog(QtWidgets.QDialog):
+    def __init__(self, parent: Optional[QtWidgets.QWidget] = None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Touch Zeit wählen")
+        self.setModal(True)
+        self.digits: str = ""
+        self._selected: Optional[QtCore.QTime] = None
+
+        layout = QtWidgets.QVBoxLayout()
+        self.display = QtWidgets.QLabel(self._format_display())
+        self.display.setAlignment(QtCore.Qt.AlignCenter)
+        self.display.setFont(QtGui.QFont("Montserrat", 28, QtGui.QFont.Bold))
+        layout.addWidget(self.display)
+
+        grid = QtWidgets.QGridLayout()
+        buttons = [str(i) for i in range(1, 10)] + ["C", "0", "←"]
+        for idx, text in enumerate(buttons):
+            btn = QtWidgets.QPushButton(text)
+            btn.setMinimumSize(80, 80)
+            if text.isdigit():
+                btn.clicked.connect(lambda _, t=text: self._append_digit(t))
+            elif text == "C":
+                btn.clicked.connect(self._clear_digits)
+            else:
+                btn.clicked.connect(self._backspace)
+            row, col = divmod(idx, 3)
+            grid.addWidget(btn, row, col)
+        layout.addLayout(grid)
+
+        action_row = QtWidgets.QHBoxLayout()
+        ok_btn = QtWidgets.QPushButton("OK")
+        ok_btn.setMinimumHeight(60)
+        ok_btn.clicked.connect(self._accept_time)
+        cancel_btn = QtWidgets.QPushButton("Abbrechen")
+        cancel_btn.setMinimumHeight(60)
+        cancel_btn.clicked.connect(self.reject)
+        action_row.addWidget(ok_btn)
+        action_row.addWidget(cancel_btn)
+        layout.addLayout(action_row)
+
+        self.setLayout(layout)
+
+    def _format_display(self) -> str:
+        padded = self.digits.ljust(4, "_")
+        return f"{padded[:2]}:{padded[2:]}"
+
+    def _append_digit(self, digit: str) -> None:
+        if len(self.digits) >= 4:
+            return
+        self.digits += digit
+        self.display.setText(self._format_display())
+
+    def _backspace(self) -> None:
+        self.digits = self.digits[:-1]
+        self.display.setText(self._format_display())
+
+    def _clear_digits(self) -> None:
+        self.digits = ""
+        self.display.setText(self._format_display())
+
+    def _accept_time(self) -> None:
+        if len(self.digits) != 4:
+            QtWidgets.QMessageBox.warning(self, "Ungültig", "Bitte vier Ziffern eingeben (HHMM).")
+            return
+        hours = int(self.digits[:2])
+        minutes = int(self.digits[2:])
+        if not (0 <= hours <= 23 and 0 <= minutes <= 59):
+            QtWidgets.QMessageBox.warning(self, "Ungültig", "Bitte gültige Uhrzeit eingeben.")
+            return
+        self._selected = QtCore.QTime(hours, minutes)
+        self.accept()
+
+    def selected_time(self) -> Optional[QtCore.QTime]:
+        return self._selected
+
+
+class AlarmFavorites:
+    def __init__(self, path: Optional[Path] = None) -> None:
+        self.path = path or Path.home() / ".dashboard_alarm_favorites.json"
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.favorites: List[Optional[str]] = [None, None]
+        self._load()
+
+    def _load(self) -> None:
+        if not self.path.exists():
+            return
+        try:
+            data = json.loads(self.path.read_text())
+            favs = data.get("favorites", [])
+            for idx in range(min(2, len(favs))):
+                if isinstance(favs[idx], str):
+                    self.favorites[idx] = favs[idx]
+        except (OSError, json.JSONDecodeError):
+            self.favorites = [None, None]
+
+    def _save(self) -> None:
+        payload = {"favorites": self.favorites}
+        try:
+            self.path.write_text(json.dumps(payload, indent=2))
+        except OSError:
+            pass
+
+    def set_favorite(self, index: int, value: QtCore.QTime) -> None:
+        if index not in (0, 1):
+            return
+        self.favorites[index] = value.toString("HH:mm")
+        self._save()
+
+    def get_favorite(self, index: int) -> Optional[QtCore.QTime]:
+        if index not in (0, 1):
+            return None
+        value = self.favorites[index]
+        if not value:
+            return None
+        time_val = QtCore.QTime.fromString(value, "HH:mm")
+        return time_val if time_val.isValid() else None
+
+
 class DashboardWindow(QtWidgets.QMainWindow):
     def __init__(self) -> None:
         super().__init__()
@@ -232,6 +352,7 @@ class DashboardWindow(QtWidgets.QMainWindow):
         )
         self.alarm = AlarmController(pin=18)
         self.alarm.alarm_triggered.connect(self._on_alarm_triggered)
+        self.favorites = AlarmFavorites()
 
         central = QtWidgets.QWidget()
         self.setCentralWidget(central)
@@ -248,17 +369,37 @@ class DashboardWindow(QtWidgets.QMainWindow):
         clock_container.addWidget(self.clock_label)
 
         alarm_group = QtWidgets.QGroupBox("Wecker Uhrzeit")
-        alarm_layout = QtWidgets.QHBoxLayout()
+        alarm_layout = QtWidgets.QVBoxLayout()
+        alarm_row = QtWidgets.QHBoxLayout()
         self.alarm_time_edit = QtWidgets.QTimeEdit(QtCore.QTime.currentTime())
         self.alarm_time_edit.setDisplayFormat("HH:mm")
         self.alarm_time_edit.setButtonSymbols(QtWidgets.QAbstractSpinBox.NoButtons)
+        self.touch_time_button = QtWidgets.QPushButton("Touch Eingabe")
+        self.touch_time_button.clicked.connect(self._open_touch_time_dialog)
         self.alarm_button = QtWidgets.QPushButton("Wecker setzen")
         self.alarm_button.clicked.connect(self._set_alarm)
         self.clear_alarm_button = QtWidgets.QPushButton("Wecker stoppen")
         self.clear_alarm_button.clicked.connect(self._clear_alarm)
-        alarm_layout.addWidget(self.alarm_time_edit)
-        alarm_layout.addWidget(self.alarm_button)
-        alarm_layout.addWidget(self.clear_alarm_button)
+        alarm_row.addWidget(self.alarm_time_edit)
+        alarm_row.addWidget(self.touch_time_button)
+        alarm_row.addWidget(self.alarm_button)
+        alarm_row.addWidget(self.clear_alarm_button)
+
+        favorites_row = QtWidgets.QHBoxLayout()
+        self.favorite_buttons: List[QtWidgets.QPushButton] = []
+        self.favorite_save_buttons: List[QtWidgets.QPushButton] = []
+        for idx in range(2):
+            apply_button = QtWidgets.QPushButton(f"Favorit {idx + 1}")
+            apply_button.clicked.connect(lambda _, i=idx: self._apply_favorite(i))
+            save_button = QtWidgets.QPushButton(f"Favorit {idx + 1} speichern")
+            save_button.clicked.connect(lambda _, i=idx: self._save_favorite(i))
+            self.favorite_buttons.append(apply_button)
+            self.favorite_save_buttons.append(save_button)
+            favorites_row.addWidget(apply_button)
+            favorites_row.addWidget(save_button)
+
+        alarm_layout.addLayout(alarm_row)
+        alarm_layout.addLayout(favorites_row)
         alarm_group.setLayout(alarm_layout)
 
         todo_group = QtWidgets.QGroupBox("Todoist - Heutige Aufgaben")
@@ -282,8 +423,16 @@ class DashboardWindow(QtWidgets.QMainWindow):
         central.setLayout(layout)
 
         self._apply_dark_style()
+        self._load_favorites()
         self._start_timers()
         self.refresh_data()
+
+    def _open_touch_time_dialog(self) -> None:
+        dialog = TouchTimeDialog(self)
+        if dialog.exec_() == QtWidgets.QDialog.Accepted:
+            selected_time = dialog.selected_time()
+            if selected_time is not None:
+                self.alarm_time_edit.setTime(selected_time)
 
     def _apply_dark_style(self) -> None:
         dark_palette = QtGui.QPalette()
@@ -380,6 +529,24 @@ class DashboardWindow(QtWidgets.QMainWindow):
     def _on_alarm_triggered(self) -> None:
         self.statusBar().showMessage("Wecker aktiv! Piezo eingeschaltet.")
 
+    def _apply_favorite(self, index: int) -> None:
+        favorite_time = self.favorites.get_favorite(index)
+        if favorite_time is None:
+            self.statusBar().showMessage(f"Favorit {index + 1} ist noch nicht gesetzt")
+            return
+        self.alarm_time_edit.setTime(favorite_time)
+        self.statusBar().showMessage(
+            f"Favorit {index + 1} geladen: {favorite_time.toString('HH:mm')}"
+        )
+
+    def _save_favorite(self, index: int) -> None:
+        selected_time = self.alarm_time_edit.time()
+        self.favorites.set_favorite(index, selected_time)
+        self._load_favorites()
+        self.statusBar().showMessage(
+            f"Favorit {index + 1} gespeichert: {selected_time.toString('HH:mm')}"
+        )
+
     def refresh_data(self) -> None:
         self._load_todoist()
         self._load_calendar()
@@ -397,6 +564,14 @@ class DashboardWindow(QtWidgets.QMainWindow):
             if item.due:
                 text = f"{text} (fällig {item.due})"
             self.todo_list.addItem(text)
+
+    def _load_favorites(self) -> None:
+        for idx, button in enumerate(self.favorite_buttons):
+            favorite_time = self.favorites.get_favorite(idx)
+            if favorite_time:
+                button.setText(f"Favorit {idx + 1}: {favorite_time.toString('HH:mm')}")
+            else:
+                button.setText(f"Favorit {idx + 1}: leer")
 
     def _load_calendar(self) -> None:
         self.calendar_list.clear()
