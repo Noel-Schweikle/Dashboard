@@ -510,7 +510,7 @@ class DashboardWindow(QtWidgets.QMainWindow):
         self.refresh_timer.start(10 * 60 * 1000)  # 10 minutes
 
     def _update_clock(self) -> None:
-        now_utc = datetime.now(timezone.utc)
+        now_utc = datetime.now(timezone.utc) + timedelta(hours=1)
         self.clock_label.setText(now_utc.strftime("%H:%M:%S"))
 
     def _check_alarm(self) -> None:
