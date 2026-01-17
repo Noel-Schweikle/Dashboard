@@ -24,6 +24,12 @@ from pathlib import Path
 from typing import List, Optional
 from zoneinfo import ZoneInfo
 
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    print("python-dotenv nicht installiert. Lade Umgebungsvariablen nur aus dem System.")
+
 import requests
 from PyQt5 import QtCore, QtGui, QtWidgets
 
@@ -178,8 +184,8 @@ class GoogleCalendarClient:
         )
         service = build("calendar", "v3", credentials=credentials)
 
-        now = datetime.now(tz=ZoneInfo("Europe/Berlin")
-        start_of_day = datetime(now.year, now.month, now.day, tzinfo=timezone("Europe/Berlin"))
+        now = datetime.now(tz=ZoneInfo("Europe/Berlin"))
+        start_of_day = datetime(now.year, now.month, now.day, tzinfo=ZoneInfo("Europe/Berlin"))
         end_of_day = start_of_day + timedelta(days=1)
 
         events_result = (
@@ -508,10 +514,10 @@ class DashboardWindow(QtWidgets.QMainWindow):
 
         self.refresh_timer = QtCore.QTimer(self)
         self.refresh_timer.timeout.connect(self.refresh_data)
-        self.refresh_timer.start(10 * 60 * 1000)  # 10 minutes
+        self.refresh_timer.start(60 * 1000)  # 1 minute
 
     def _update_clock(self) -> None:
-        now_utc = datetime.now(tz=ZoneInfo("Europe/Berlin")
+        now_utc = datetime.now(tz=ZoneInfo("Europe/Berlin"))
         self.clock_label.setText(now_utc.strftime("%H:%M:%S"))
 
     def _check_alarm(self) -> None:
