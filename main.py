@@ -23,6 +23,13 @@ from datetime import datetime, time, timedelta, timezone
 from pathlib import Path
 from typing import List, Optional
 from zoneinfo import ZoneInfo
+import random
+
+try:
+    from PyQt5 import QtMultimedia, QtMultimediaWidgets
+    MULTIMEDIA_AVAILABLE = True
+except ImportError:
+    MULTIMEDIA_AVAILABLE = False
 
 try:
     from dotenv import load_dotenv
@@ -347,6 +354,35 @@ class AlarmFavorites:
         return time_val if time_val.isValid() else None
 
 
+class VideoPlayerWindow(QtWidgets.QDialog):
+    def __init__(self, video_path: str, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Guten Morgen!")
+        self.resize(800, 480)
+        
+        # Determine screen geometry to show fullscreen or maximized
+        self.setWindowFlags(QtCore.Qt.Window)
+
+        layout = QtWidgets.QVBoxLayout()
+        layout.setContentsMargins(0, 0, 0, 0)
+        
+        self.video_widget = QtMultimediaWidgets.QVideoWidget()
+        layout.addWidget(self.video_widget)
+        self.setLayout(layout)
+
+        self.media_player = QtMultimedia.QMediaPlayer(None, QtMultimedia.QMediaPlayer.VideoSurface)
+        self.media_player.setVideoOutput(self.video_widget)
+        
+        # Load Content
+        url = QtCore.QUrl.fromLocalFile(video_path)
+        self.media_player.setMedia(QtMultimedia.QMediaContent(url))
+        self.media_player.play()
+
+    def closeEvent(self, event):
+        self.media_player.stop()
+        event.accept()
+
+
 class DashboardWindow(QtWidgets.QMainWindow):
     def __init__(self) -> None:
         super().__init__()
@@ -530,8 +566,35 @@ class DashboardWindow(QtWidgets.QMainWindow):
         self.statusBar().showMessage(f"Wecker gesetzt auf {alarm_time.strftime('%H:%M')}")
 
     def _clear_alarm(self) -> None:
+        was_active = self.alarm.alarm_active
         self.alarm.clear_alarm()
         self.statusBar().showMessage("Wecker deaktiviert")
+        
+        if was_active:
+            self._play_random_video()
+
+    def _play_random_video(self) -> None:
+        if not MULTIMEDIA_AVAILABLE:
+            QtWidgets.QMessageBox.information(
+                self, "Video", "PyQt5 Multimedia Modul fehlt."
+            )
+            return
+
+        folder_path = os.getenv("VIDEO_FOLDER")
+        if not folder_path:
+            return
+
+        p = Path(folder_path)
+        if not p.is_dir():
+            return
+            
+        videos = list(p.glob("*.mp4")) + list(p.glob("*.mkv")) + list(p.glob("*.avi"))
+        if not videos:
+            return
+            
+        chosen = random.choice(videos)
+        self.video_player = VideoPlayerWindow(str(chosen), self)
+        self.video_player.showFullScreen()
 
     def _on_alarm_triggered(self) -> None:
         self.statusBar().showMessage("Wecker aktiv! Piezo eingeschaltet.")
